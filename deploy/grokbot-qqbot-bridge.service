@@ -1,0 +1,42 @@
+# Sample systemd unit (the project is checked out at /opt/grokbot-qqbot-bridge). Copy to /etc/systemd/system/, adjust User and paths, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now grokbot-qqbot-bridge
+# Put QQBOT_APP_ID, QQBOT_APP_SECRET and FORWARD_WEBHOOK_URL in /opt/grokbot-qqbot-bridge/.env first.
+[Unit]
+Description=grokbot-qqbot-bridge: QQ bot bridge (outbound-only webhook forwarder)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=3600
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/opt/grokbot-qqbot-bridge
+ExecStart=/usr/bin/env node bin/bridge.js
+Restart=on-failure
+RestartSec=15
+# Never auto-restart on fatal states: 2 = configuration, 15 = banned, 16 = bad credentials, 17 = IP whitelist, 18 = intents denied.
+RestartPreventExitStatus=2 15 16 17 18
+# Graceful stop: the bridge gets up to 10 s (BRIDGE_STOP_GRACE_MS) to finish messages in flight.
+TimeoutStopSec=20
+# Hardening. The bridge only needs outbound HTTPS/WSS and its own state/ and logs/ folders.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+# Home folders are read-only for the service. If this folder (or MEDIA_DIR / STATE_DIR / LOG_DIR) is under a home
+# folder, keep it listed in ReadWritePaths below, which still makes it writable.
+ProtectHome=read-only
+ReadWritePaths=/opt/grokbot-qqbot-bridge/state /opt/grokbot-qqbot-bridge/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+# Inbound media is processed one message at a time; this caps memory if something goes wrong.
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

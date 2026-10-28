@@ -1,0 +1,20 @@
+{
+  "name": "grokbot-qqbot-bridge",
+  "version": "1.1.0",
+  "description": "Bridge a QQ Open Platform bot (QQ Bot API v2, WebSocket gateway, C2C) to any HTTP webhook or AI agent: outbound-only, owner protection, inbound media, image/voice/file replies, self-recovering after host sleep.",
+  "license": "MIT",
+  "author": "number5meme",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test --test-timeout=60000 test/*.test.js",
+    "setup": "node bin/setup.js",
+    "bridge": "node bin/bridge.js",
+    "healthcheck": "node bin/healthcheck.js"
+  },
+  "optionalDependencies": {
+    "silk-wasm": "^3.7.1"
+  },
+  "keywords": ["qq", "qqbot", "qq-bot", "qq-open-platform", "qq-bot-api", "tencent", "bot", "chatbot", "websocket", "webhook", "bridge", "ai-agent", "llm", "grok", "grok-bot", "routine", "outbound-only"]
+}
