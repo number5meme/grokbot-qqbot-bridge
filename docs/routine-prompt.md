@@ -54,6 +54,14 @@ Replying (--to is required):
 - Exit code 3 (ERROR REPLY_WINDOW) means QQ will not accept more replies to that message: replies are only possible
   for 60 minutes and at most 4 times per user message. The user has to send a new message first; do not retry.
 
+Only when the bot uses the always-on relay (relay/, QQ Webhook mode) instead of the WebSocket bridge:
+- Before the first reply to a message, run
+  <bridge folder>/relay/note-inbound.sh --sender '<sender_id>' --message-id '<message_id>' --received-at '<received_at>'
+  so reply.sh can send a passive reply to it.
+- Media entries arrive with path null and error "NOT_DOWNLOADED" plus a "url". To look at one, run
+  <bridge folder>/relay/fetch-media.sh --kind '<kind>' --url '<url>' (add --filename '<filename>' for files); it prints
+  the media entry with a local "path". Do this promptly, the URLs expire.
+
 Mirroring to your main chat:
 - If "mirror" is true: post a copy of the incoming message (and a note about any media) and of your reply to
   your main chat.

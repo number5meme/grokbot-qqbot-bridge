@@ -1,0 +1,15 @@
+{
+  "name": "qqbot-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker relaying QQ Bot webhook events to a webhook.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

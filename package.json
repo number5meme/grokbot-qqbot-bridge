@@ -11,7 +11,8 @@
     "test": "node --test --test-timeout=60000 test/*.test.js",
     "setup": "node bin/setup.js",
     "bridge": "node bin/bridge.js",
-    "healthcheck": "node bin/healthcheck.js"
+    "healthcheck": "node bin/healthcheck.js",
+    "test:relay": "node --test relay/test/*.test.js"
   },
   "optionalDependencies": {
     "silk-wasm": "^3.7.1"

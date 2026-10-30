@@ -7,8 +7,9 @@ messages, but any HTTP endpoint works: another AI agent, a bot framework, an aut
 For WeChat, see the sibling project grokbot-wechatclaw-bridge.
 
 The bridge uses the official **QQ Bot Open Platform API v2** (`q.qq.com`) in **WebSocket mode**. It is
-**outbound-only** (HTTPS and WSS): no open port, public IP, domain, or TLS certificate is needed. (The platform's
-alternative "webhook" mode needs a public HTTPS server; this bridge does not use it.)
+**outbound-only** (HTTPS and WSS): no open port, public IP, domain, or TLS certificate is needed. If the host may
+sleep, the optional [always-on relay](#always-on-relay-cloudflare-worker) in `relay/` (a small Cloudflare Worker) uses
+the platform's Webhook mode instead and forwards the same payload, so no message is missed.
 
 ## Quick start
 
@@ -76,7 +77,8 @@ Create the bot on q.qq.com first ([Setup](#setup)), then send it a message. `npm
    style answer. That is expected.
 4. On the bot page, copy the **AppID** and **AppSecret**. **The AppSecret is shown only once.** Viewing it again later resets
    it, and the old secret stops working right away. Store it safely.
-5. In the bot's development settings, under event subscription / callback, choose **WebSocket**.
+5. In the bot's development settings, under event subscription / callback, choose **WebSocket** (or **Webhook** if you
+   use the [always-on relay](#always-on-relay-cloudflare-worker) instead of the WebSocket bridge).
 6. **IP whitelist:** leave the server IP whitelist **empty**, or add the exact public egress IPv4 address(es) of the machine
    running the bridge. If the whitelist has entries and your IP is not among them, every call fails with `11298` (single IPv4
    addresses only, no CIDR). Home and cloud machines often change egress IP, so empty is usually the practical choice.
@@ -125,6 +127,9 @@ forwarded payload) or message the bot yourself right after `./start.sh`, and che
    replaced by the absolute path of this folder. The routine calls `reply.sh` and reads media from local paths, so it
    must run on the machine where the bridge runs.
 4. Run `./start.sh`, then message the bot from your own QQ account. Each message triggers the routine once.
+
+With the [always-on relay](#always-on-relay-cloudflare-worker), the routine is set up the same way; the prompt's relay
+section adds the two extra steps (`relay/note-inbound.sh` before replying, `relay/fetch-media.sh` for media).
 
 Any other HTTP endpoint works the same way: it receives the JSON [payload](#webhook-payload), and `FORWARD_WEBHOOK_AUTH`
 is optional.
@@ -451,7 +456,7 @@ both modes.
 
 ## Limitations
 
-- C2C (one-to-one) messages only. Group, guild, and channel events are ignored.
+- C2C (one-to-one) messages only. Group, guild, and channel events are ignored (also by the relay).
 - Replies more than 60 minutes after the user's message, or beyond 4 per message, are usually refused by QQ
   (`ERROR REPLY_WINDOW`): active messages were discontinued for most bots on 2025-04-21.
 - After a crash (not a normal stop), a message that was being processed may be lost: QQ does not redeliver it.
@@ -478,9 +483,70 @@ Run a scheduled job on your agent platform (for example a Grok Bot routine) that
 
 ### Option 2: Always-on relay (instant, recommended for production)
 
-Move message receiving to something that never sleeps. Configure QQ's official HTTP callback (webhook) mode on q.qq.com to point at a small always-on relay (for example a free Cloudflare Worker) that forwards each event to your agent's webhook URL. The callback URL must be HTTPS on port 80, 443, 8080, or 8443, and the relay has to answer QQ's signed URL validation and acknowledge each event. The webhook wakes the agent on its own, so replies go out immediately and the host only needs to be awake while replying.
+Move message receiving to something that never sleeps: the [always-on relay](#always-on-relay-cloudflare-worker)
+shipped in `relay/`. QQ's Webhook mode pushes each event over HTTPS to a free Cloudflare Worker, which forwards it to
+your agent's webhook with the same payload. The webhook wakes the agent on its own, so replies go out immediately
+(inside the passive reply window) and the host only needs to be awake while replying.
 
 Alternatively, run the bridge itself on a machine that stays awake.
+
+## Always-on relay (Cloudflare Worker)
+
+`relay/` contains `qqbot-relay`, a Cloudflare Worker that replaces the WebSocket connection for receiving. It is the
+recommended setup when the bridge host can sleep. Full details: [relay/README.md](relay/README.md).
+
+```
+ QQ user ──> QQ bot ──> QQ webhook push (HTTPS) ──> qqbot-relay (Cloudflare Worker) ── HTTPS POST (JSON) ──> your webhook
+                        QQ OpenAPI <── HTTPS ── reply.sh / relay/note-inbound.sh / relay/fetch-media.sh <── your agent
+```
+
+> **Important: `workers.dev` is generally unreachable from mainland China.** QQ's callback URL validation then never
+> reaches the Worker, and the console shows a misleading **"signature check failed"** error. Bind a **Workers Custom
+> Domain** on a domain in your Cloudflare account (for example `qqbot.example.com`) and use that as the callback URL.
+
+What it does: answers QQ's callback URL validation (`op: 13`, Ed25519 signature derived from the AppSecret), verifies
+`X-Signature-Ed25519` / `X-Signature-Timestamp` on every event (401 otherwise), acknowledges each event at once with
+`{"op":12,"d":0}`, forwards `C2C_MESSAGE_CREATE` with the bridge's text, owner protection, rate limit, truncation and
+[payload](#webhook-payload) rules, and dedupes by event and message id. Forwarding uses the same retry policy as the
+bridge (3 attempts).
+
+Setup:
+
+1. Deploy (free Cloudflare account; API token from the "Edit Cloudflare Workers" template):
+   ```sh
+   cd relay && npm install
+   export CLOUDFLARE_API_TOKEN=<token> CLOUDFLARE_ACCOUNT_ID=<account id>
+   npx wrangler deploy
+   npx wrangler secret put QQBOT_APP_SECRET     # the bot's AppSecret
+   npx wrangler secret put WEBHOOK_URL          # same value as FORWARD_WEBHOOK_URL
+   npx wrangler secret put WEBHOOK_AUTH         # same value as FORWARD_WEBHOOK_AUTH, e.g. "Bearer <key>"
+   ```
+   Secrets are read from stdin. With owner protection on, also set `OWNER_ID` (and optionally `ALLOWLIST`); the other
+   options (`OWNER_PROTECTION`, rate limits, `MAX_MESSAGE_CHARS`, `MIRROR_TO_MAIN_CHAT`, `ACCEPT_MEDIA`) are `[vars]`
+   in `relay/wrangler.toml`.
+2. Bind a Workers Custom Domain: Workers -> `qqbot-relay` -> Settings -> Domains & Routes -> Add -> Custom Domain
+   (for example `qqbot.example.com`), or the commented `routes` line in `relay/wrangler.toml`.
+3. In the bot console's development settings, **Event subscription and callback address**: switch from **WebSocket**
+   to **Webhook** (takes effect immediately), enter the callback URL `https://qqbot.example.com/` (HTTPS on 443; QQ
+   allows 80, 443, 8080 and 8443) and let it validate, then tick **C2C_MESSAGE_CREATE**. The server IP whitelist is
+   unaffected: it only restricts OpenAPI calls made by `reply.sh` from your machine.
+4. Message the bot and watch `npx wrangler tail qqbot-relay`.
+5. Stop the WebSocket bridge (`./stop.sh`): in Webhook mode it receives nothing. Keep using `reply.sh` to reply.
+
+Two steps run on the machine, because the Worker cannot write files there (both are in the
+[routine prompt](docs/routine-prompt.md)):
+
+- **Passive replies:** before replying, run
+  `relay/note-inbound.sh --sender '<sender_id>' --message-id '<message_id>' --received-at '<received_at>'`. It records
+  the message exactly as the bridge would, so `reply.sh` can send a passive reply.
+- **Media:** entries arrive as `{ kind, path: null, ..., error: "NOT_DOWNLOADED", url, ... }`. Fetch one with
+  `relay/fetch-media.sh --kind <kind> --url '<url>' [--filename '<filename>']` (QQ URLs expire), which prints the usual
+  media entry with a local `path`.
+
+Caveats: dedupe is best effort (per Worker isolate, plus the Cache API), so a redelivered event can occasionally be
+forwarded twice; there is no retry queue (a payload that fails all 3 attempts is only logged, not saved for
+`replay.sh`); with `OWNER_PROTECTION=on` there is no first-sender binding, so set `OWNER_ID`, and rate limits are per
+isolate. `cd relay && npm test` (or `npm run test:relay`) runs the relay's offline tests.
 
 ## Credits
 

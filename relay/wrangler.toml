@@ -1,0 +1,21 @@
+# Cloudflare Worker: QQ Bot webhook (HTTP callback) events -> webhook.
+# The account id comes from the CLOUDFLARE_ACCOUNT_ID environment variable (not stored here).
+# Secrets (set with `wrangler secret put`, never stored here): QQBOT_APP_SECRET, WEBHOOK_URL, WEBHOOK_AUTH,
+# and optionally QQBOT_APP_ID, OWNER_ID, ALLOWLIST.
+name = "qqbot-relay"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+# Mainland China: QQ cannot reach workers.dev; bind a Workers Custom Domain, for example:
+# routes = [{ pattern = "qqbot.example.com", custom_domain = true }]
+
+[vars]
+OWNER_PROTECTION = "off"
+RATE_LIMIT_PER_MIN = "20"
+GLOBAL_RATE_LIMIT_PER_MIN = "60"
+MAX_MESSAGE_CHARS = "4000"
+MIRROR_TO_MAIN_CHAT = "false"
+ACCEPT_MEDIA = "true"
+
+[observability]
+enabled = true
