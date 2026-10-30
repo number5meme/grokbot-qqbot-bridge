@@ -461,6 +461,27 @@ both modes.
   The platform docs are not fully consistent about the passive window, so reply soon for the best results.
 - One bot per bridge instance. Run separate copies (separate `STATE_DIR`) for more.
 
+## Known limitation: messages sent while the host is asleep
+
+The bridge keeps an outbound long connection open to the platform. If the machine running it suspends or sleeps (for example an idle cloud box or a laptop with the lid closed), that connection drops and the platform cannot push new messages to it. The bridge reconnects automatically as soon as the host wakes up and resumes its session. QQ replays missed events on a resume only after a short disconnect, so messages sent during a longer outage may not be redelivered by the platform, and then they are never forwarded and never answered.
+
+Nothing in the bridge can wake a sleeping host by itself. If your host sleeps, use one of these approaches:
+
+### Option 1: Scheduled wake-up (no external services)
+
+Run a scheduled job on your agent platform (for example a Grok Bot routine) that wakes the host every N minutes. On each wake the bridge reconnects so new messages are received again.
+
+- Worst-case reply delay is about N minutes (the minimum interval depends on your scheduler; Grok Bot routines allow 5 minutes).
+- Every wake-up is a full agent run and counts toward your usage limits, so shorter intervals cost more. 15 to 30 minutes is a reasonable start.
+- Keep N well under 60 minutes: QQ refuses replies sent more than 60 minutes after the user's message (see [Limitations](#limitations)).
+- Planned: on each wake, fetch messages missed while offline and forward them. This is not implemented yet, so for now messages sent while the host was asleep may still be lost.
+
+### Option 2: Always-on relay (instant, recommended for production)
+
+Move message receiving to something that never sleeps. Configure QQ's official HTTP callback (webhook) mode on q.qq.com to point at a small always-on relay (for example a free Cloudflare Worker) that forwards each event to your agent's webhook URL. The callback URL must be HTTPS on port 80, 443, 8080, or 8443, and the relay has to answer QQ's signed URL validation and acknowledge each event. The webhook wakes the agent on its own, so replies go out immediately and the host only needs to be awake while replying.
+
+Alternatively, run the bridge itself on a machine that stays awake.
+
 ## Credits
 
 - Built on the public [QQ Bot Open Platform API v2](https://bot.q.qq.com/wiki/) documentation. Gateway, media-upload,
